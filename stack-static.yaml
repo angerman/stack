@@ -1,0 +1,17 @@
+resolver: lts-5.17
+
+build:
+  split-objs: true
+  # ^ NOTE: BROKEN ON LLVM
+
+ghc-options:
+  '*': '-optc-Os -optl-static -fPIC'
+  # NOTE: -fllvm -optlc-Oz -optlo-strip is 50MB+ (!). see split-objs
+
+rebuild-ghc-options: true
+
+extra-deps:
+- aeson-0.11.2.0
+- hpack-0.14.0
+- path-io-1.1.0
+- th-lift-instances-0.1.6
