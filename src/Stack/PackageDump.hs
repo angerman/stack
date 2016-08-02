@@ -6,7 +6,6 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE DataKinds #-}
 module Stack.PackageDump
     ( Line
     , eachSection
@@ -15,9 +14,6 @@ module Stack.PackageDump
     , conduitDumpPackage
     , ghcPkgDump
     , ghcPkgDescribe
-    , InstalledCache
-    , InstalledCacheInner (..)
-    , InstalledCacheEntry (..)
     , newInstalledCache
     , loadInstalledCache
     , saveInstalledCache
@@ -37,7 +33,6 @@ import           Control.Monad.Logger (MonadLogger)
 import           Control.Monad.Trans.Control
 import           Data.Attoparsec.Args
 import           Data.Attoparsec.Text as P
-import           Data.Store.VersionTagged
 import           Data.Conduit
 import qualified Data.Conduit.List as CL
 import qualified Data.Conduit.Text as CT
@@ -49,7 +44,8 @@ import           Data.Maybe (catMaybes, listToMaybe)
 import           Data.Maybe.Extra (mapMaybeM)
 import qualified Data.Set as Set
 import           Data.Store (Store)
-import           Data.Store.TypeHash (mkManyHasTypeHash)
+import           Data.Store.Version
+import           Data.Store.VersionTagged
 import           Data.Text (Text)
 import qualified Data.Text as T
 import           Data.Typeable (Typeable)
@@ -62,19 +58,6 @@ import           Stack.GhcPkg
 import           Stack.Types
 import           System.Directory (getDirectoryContents, doesFileExist)
 import           System.Process.Read
-
--- | Cached information on whether package have profiling libraries and haddocks.
-newtype InstalledCache = InstalledCache (IORef InstalledCacheInner)
-newtype InstalledCacheInner = InstalledCacheInner (Map GhcPkgId InstalledCacheEntry)
-    deriving (Store, Generic, Eq, Show)
-
--- | Cached information on whether a package has profiling libraries and haddocks.
-data InstalledCacheEntry = InstalledCacheEntry
-    { installedCacheProfiling :: !Bool
-    , installedCacheHaddock :: !Bool
-    , installedCacheIdent :: !PackageIdentifier }
-    deriving (Eq, Generic, Show)
-instance Store InstalledCacheEntry
 
 -- | Call ghc-pkg dump with appropriate flags and stream to the given @Sink@, for a single database
 ghcPkgDump
@@ -131,14 +114,13 @@ newInstalledCache = liftIO $ InstalledCache <$> newIORef (InstalledCacheInner Ma
 loadInstalledCache :: (MonadLogger m, MonadIO m, MonadBaseControl IO m)
                    => Path Abs File -> m InstalledCache
 loadInstalledCache path = do
-    m <- taggedDecodeOrLoad path (return $ InstalledCacheInner Map.empty)
+    m <- $(versionedDecodeOrLoad installedCacheVC) path (return $ InstalledCacheInner Map.empty)
     liftIO $ InstalledCache <$> newIORef m
 
 -- | Save a @InstalledCache@ to disk
 saveInstalledCache :: (MonadLogger m, MonadIO m) => Path Abs File -> InstalledCache -> m ()
-saveInstalledCache path (InstalledCache ref) = do
-    ensureDir (parent path)
-    liftIO (readIORef ref) >>= taggedEncodeFile path
+saveInstalledCache path (InstalledCache ref) =
+    liftIO (readIORef ref) >>= $(versionedEncodeFile installedCacheVC) path
 
 -- | Prune a list of possible packages down to those whose dependencies are met.
 --
@@ -449,5 +431,3 @@ takeWhileC f =
     go x
         | f x = yield x >> loop
         | otherwise = leftover x
-
-$(mkManyHasTypeHash [ [t| InstalledCacheInner |] ])
